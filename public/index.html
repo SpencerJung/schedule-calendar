@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>스케줄 캘린더 — 로그인</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="auth-page">
+
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="icon">🗓️</span>
+      <h1>스케줄 캘린더</h1>
+      <p>일정을 스마트하게 관리하세요</p>
+    </div>
+
+    <!-- 탭 -->
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">로그인</button>
+      <button class="auth-tab"        data-tab="register">회원가입</button>
+    </div>
+
+    <!-- 로그인 폼 -->
+    <div class="auth-panel active" id="panel-login">
+      <div class="field">
+        <label>이메일</label>
+        <input type="email" id="login-email" placeholder="email@example.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>비밀번호</label>
+        <input type="password" id="login-pw" placeholder="비밀번호 입력" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" id="btn-login">
+        <span id="login-label">로그인</span>
+      </button>
+    </div>
+
+    <!-- 회원가입 폼 -->
+    <div class="auth-panel" id="panel-register">
+      <div class="field">
+        <label>사용자명</label>
+        <input type="text" id="reg-username" placeholder="2자 이상 입력" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>이메일</label>
+        <input type="email" id="reg-email" placeholder="email@example.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>비밀번호</label>
+        <input type="password" id="reg-pw" placeholder="6자 이상 입력" autocomplete="new-password">
+      </div>
+      <button class="btn btn-primary" id="btn-register">
+        <span id="register-label">회원가입</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script type="module">
+    import { authApi } from '/js/api.js';
+    import { toast } from '/js/toast.js';
+
+    // ── 이미 로그인된 세션 확인 ──────────────────────────
+    (async () => {
+      const session = await authApi.refresh();
+      if (session) window.location.href = '/app.html';
+    })();
+
+    // ── 탭 전환 ──────────────────────────────────────────
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.tab;
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.auth-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`panel-${target}`).classList.add('active');
+      });
+    });
+
+    // ── Enter 키 제출 ─────────────────────────────────────
+    function onEnter(el, fn) {
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') fn(); });
+    }
+
+    // ── 로그인 ───────────────────────────────────────────
+    const loginBtn   = document.getElementById('btn-login');
+    const loginLabel = document.getElementById('login-label');
+    const emailEl    = document.getElementById('login-email');
+    const pwEl       = document.getElementById('login-pw');
+
+    onEnter(emailEl, doLogin);
+    onEnter(pwEl,    doLogin);
+    loginBtn.addEventListener('click', doLogin);
+
+    async function doLogin() {
+      const email = emailEl.value.trim();
+      const pw    = pwEl.value;
+      if (!email || !pw) { toast.error('이메일과 비밀번호를 입력해주세요.'); return; }
+
+      loginBtn.disabled = true;
+      loginLabel.innerHTML = '<span class="spinner"></span>';
+      try {
+        await authApi.login(email, pw);
+        window.location.href = '/app.html';
+      } catch (err) {
+        toast.error(err.message);
+      } finally {
+        loginBtn.disabled = false;
+        loginLabel.textContent = '로그인';
+      }
+    }
+
+    // ── 회원가입 ─────────────────────────────────────────
+    const regBtn    = document.getElementById('btn-register');
+    const regLabel  = document.getElementById('register-label');
+    const regUser   = document.getElementById('reg-username');
+    const regEmail  = document.getElementById('reg-email');
+    const regPw     = document.getElementById('reg-pw');
+
+    onEnter(regPw, doRegister);
+    regBtn.addEventListener('click', doRegister);
+
+    async function doRegister() {
+      const username = regUser.value.trim();
+      const email    = regEmail.value.trim();
+      const pw       = regPw.value;
+      if (!username || !email || !pw) { toast.error('모든 필드를 입력해주세요.'); return; }
+
+      regBtn.disabled = true;
+      regLabel.innerHTML = '<span class="spinner"></span>';
+      try {
+        await authApi.register(username, email, pw);
+        toast.success('회원가입 완료! 로그인해주세요.');
+        // 로그인 탭으로 전환
+        document.querySelector('[data-tab="login"]').click();
+        document.getElementById('login-email').value = email;
+        document.getElementById('login-pw').focus();
+      } catch (err) {
+        toast.error(err.message);
+      } finally {
+        regBtn.disabled = false;
+        regLabel.textContent = '회원가입';
+      }
+    }
+  </script>
+</body>
+</html>
