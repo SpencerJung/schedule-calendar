@@ -39,6 +39,21 @@
         </div>
       </div>
 
+      <!-- 검색 바 -->
+      <div style="padding:10px 20px;border-bottom:1px solid var(--bd)">
+        <input type="search" id="search-input" placeholder="🔍 제목/메모 검색..."
+          style="width:100%;background:var(--s3);border:1px solid var(--bd);color:var(--txt);
+                 border-radius:6px;padding:7px 12px;outline:none;font-size:.85rem">
+      </div>
+
+      <!-- 통계 바 -->
+      <div id="stats-bar" style="display:flex;gap:12px;padding:10px 20px;
+           border-bottom:1px solid var(--bd);font-size:.78rem;color:var(--mu)">
+        <span>전체 <strong id="stat-total" style="color:var(--txt)">-</strong></span>
+        <span>이번달 <strong id="stat-month" style="color:var(--acc)">-</strong></span>
+        <span>예정 <strong id="stat-upcoming" style="color:var(--grn)">-</strong></span>
+      </div>
+
       <div class="side-body">
         <div class="schedule-list" id="schedule-list">
           <div class="no-schedule">

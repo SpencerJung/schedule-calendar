@@ -19,14 +19,12 @@ function isValidColor(str) {
 function isValidYear(str)  { return /^\d{4}$/.test(str); }
 function isValidMonth(str) { return /^(0?[1-9]|1[0-2])$/.test(str); }
 
-/** 데이터 무결성: start_time이 end_time보다 늦으면 거부 */
 function validateTimeRange(start, end) {
   if (start && end && start >= end) {
     throw new ValidationError('시작 시간이 종료 시간보다 늦거나 같습니다.');
   }
 }
 
-/** 공통 필드 검증 (생성/수정 공유) */
 function validateScheduleFields({ title, description, date, start_time, end_time, color }) {
   if (!title?.trim())                           throw new ValidationError('제목을 입력해주세요.');
   if (title.trim().length > 100)                throw new ValidationError('제목은 100자 이하이어야 합니다.');
@@ -38,21 +36,90 @@ function validateScheduleFields({ title, description, date, start_time, end_time
   validateTimeRange(start_time, end_time);
 }
 
-// ── 일정 조회 (월별) ────────────────────────────────────────
-// GET /api/schedules?year=2026&month=3
+// ── 일정 통계 ────────────────────────────────────────────────
+// GET /api/schedules/stats
+// 반드시 /:id 보다 먼저 등록해야 라우트 충돌 없음
+router.get('/stats', (req, res, next) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const db = getDB();
+
+    const total = prepare(
+      'SELECT COUNT(*) AS cnt FROM schedules WHERE user_id = ?'
+    ).get(req.user.id).cnt;
+
+    const upcoming = prepare(
+      'SELECT COUNT(*) AS cnt FROM schedules WHERE user_id = ? AND date >= ?'
+    ).get(req.user.id, today).cnt;
+
+    // 이번 달 일정 수
+    const ym = today.slice(0, 7);
+    const thisMonth = prepare(
+      "SELECT COUNT(*) AS cnt FROM schedules WHERE user_id = ? AND date LIKE ?"
+    ).get(req.user.id, `${ym}-%`).cnt;
+
+    // 가장 많이 사용한 색상 Top 3
+    const topColors = db.prepare(`
+      SELECT color, COUNT(*) AS cnt
+      FROM schedules
+      WHERE user_id = ?
+      GROUP BY color
+      ORDER BY cnt DESC
+      LIMIT 3
+    `).all(req.user.id);
+
+    res.json({ total, upcoming, thisMonth, topColors });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── 일정 조회 (월별 + 키워드 검색) ─────────────────────────
+// GET /api/schedules?year=2026&month=3&search=미팅
 router.get('/', (req, res, next) => {
   try {
-    const { year, month } = req.query;
+    const { year, month, search } = req.query;
 
     if ((year && !isValidYear(year)) || (month && !isValidMonth(month))) {
       throw new ValidationError('올바른 연도/월 형식이 아닙니다.');
     }
 
+    // search 키워드 길이 제한
+    if (search && search.length > 100) {
+      throw new ValidationError('검색어는 100자 이하이어야 합니다.');
+    }
+
+    const db = getDB();
     let rows;
-    if (year && month) {
+
+    if (search?.trim()) {
+      // 키워드 검색: title 또는 description에서 LIKE 매칭
+      // % 이스케이프 처리 → LIKE 와일드카드 오용 방지
+      const keyword = `%${search.trim().replace(/[%_\\]/g, '\\$&')}%`;
+
+      if (year && month) {
+        const m      = String(month).padStart(2, '0');
+        const prefix = `${year}-${m}-%`;
+        rows = db.prepare(`
+          SELECT * FROM schedules
+          WHERE user_id = ?
+            AND date LIKE ?
+            AND (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')
+          ORDER BY date, start_time
+          LIMIT 200
+        `).all(req.user.id, prefix, keyword, keyword);
+      } else {
+        rows = db.prepare(`
+          SELECT * FROM schedules
+          WHERE user_id = ?
+            AND (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')
+          ORDER BY date, start_time
+          LIMIT 200
+        `).all(req.user.id, keyword, keyword);
+      }
+    } else if (year && month) {
       const m      = String(month).padStart(2, '0');
       const prefix = `${year}-${m}-%`;
-      // 성능: 캐시된 prepared statement 재사용
       rows = prepare(
         'SELECT * FROM schedules WHERE user_id = ? AND date LIKE ? ORDER BY date, start_time LIMIT 500'
       ).all(req.user.id, prefix);
@@ -68,6 +135,24 @@ router.get('/', (req, res, next) => {
   }
 });
 
+// ── 단건 조회 ───────────────────────────────────────────────
+// GET /api/schedules/:id
+router.get('/:id', (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) throw new ValidationError('유효하지 않은 ID입니다.');
+
+    const schedule = prepare(
+      'SELECT * FROM schedules WHERE id = ? AND user_id = ?'
+    ).get(id, req.user.id);
+
+    if (!schedule) throw new NotFoundError('일정을 찾을 수 없습니다.');
+    res.json(schedule);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── 일정 생성 ───────────────────────────────────────────────
 router.post('/', (req, res, next) => {
   try {
@@ -75,7 +160,6 @@ router.post('/', (req, res, next) => {
 
     validateScheduleFields({ title, description, date, start_time, end_time, color });
 
-    // 트랜잭션 + IMMEDIATE 락: 동시 쓰기 충돌 방지
     const created = withTransaction(getDB(), () => {
       const result = prepare(`
         INSERT INTO schedules (user_id, title, description, date, start_time, end_time, color)
@@ -105,10 +189,8 @@ router.put('/:id', (req, res, next) => {
     if (!Number.isInteger(id) || id <= 0) throw new ValidationError('유효하지 않은 ID입니다.');
 
     const { title, description, date, start_time, end_time, color } = req.body;
-
     validateScheduleFields({ title, description, date, start_time, end_time, color });
 
-    // 트랜잭션: 소유권 확인 + 업데이트 원자적 처리
     const updated = withTransaction(getDB(), () => {
       const existing = prepare(
         'SELECT id FROM schedules WHERE id = ? AND user_id = ?'

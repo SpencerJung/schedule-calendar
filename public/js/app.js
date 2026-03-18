@@ -7,7 +7,7 @@
  * 3. 일정 CRUD 모두 async/await + 낙관적 UI 업데이트
  */
 
-import { authApi, scheduleApi, getAccessToken } from './api.js';
+import { authApi, scheduleApi, apiFetch, getAccessToken } from './api.js';
 import { Calendar } from './calendar.js';
 import { ScheduleModal, showConfirm } from './modal.js';
 import { toast } from './toast.js';
@@ -47,14 +47,17 @@ async function initApp() {
   setupModal();
   setupCalendar();
 
-  // 일정 데이터 비동기 로드
-  await loadSchedules();
+  // 일정 + 통계 비동기 병렬 로드
+  await Promise.all([loadSchedules(), loadStats()]);
 
   // 오늘 날짜 자동 선택
   const today = new Date();
   const todayStr = dateStr(today);
   selectedDate = todayStr;
   renderSidePanel(todayStr);
+
+  // 검색 입력 이벤트 (300ms 디바운스)
+  setupSearch();
 }
 
 // ── 사용자 정보 표시 ─────────────────────────────────────
@@ -106,6 +109,67 @@ async function loadSchedules() {
   } catch (err) {
     toast.error('일정을 불러오지 못했습니다: ' + err.message);
   }
+}
+
+// ── 통계 로드 ─────────────────────────────────────────────
+
+async function loadStats() {
+  try {
+    const stats = await apiFetch('/api/schedules/stats');
+    document.getElementById('stat-total').textContent    = stats.total;
+    document.getElementById('stat-month').textContent   = stats.thisMonth;
+    document.getElementById('stat-upcoming').textContent = stats.upcoming;
+  } catch {
+    // 통계 실패는 조용히 무시 (핵심 기능 아님)
+  }
+}
+
+// ── 검색 (디바운스) ───────────────────────────────────────
+
+let _searchTimer = null;
+
+function setupSearch() {
+  const input = document.getElementById('search-input');
+  if (!input) return;
+
+  input.addEventListener('input', () => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(async () => {
+      const q = input.value.trim();
+      if (!q) {
+        // 검색어 없으면 전체 복원
+        renderSidePanel(selectedDate);
+        calendar.setSchedules(allSchedules);
+        return;
+      }
+      try {
+        const results = await scheduleApi.search(q);
+        // 검색 결과를 캘린더와 사이드 패널에 반영
+        renderSearchResults(results, q);
+      } catch (err) {
+        toast.error('검색 실패: ' + err.message);
+      }
+    }, 300);
+  });
+}
+
+function renderSearchResults(results, query) {
+  const listEl  = document.getElementById('schedule-list');
+  const dateEl  = document.getElementById('side-date');
+  dateEl.textContent = `"${query}" 검색 결과 ${results.length}건`;
+
+  if (results.length === 0) {
+    listEl.innerHTML = `
+      <div class="no-schedule">
+        <span class="icon">🔍</span>
+        검색 결과가 없습니다
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = '';
+  results.forEach(s => listEl.appendChild(buildScheduleCard(s)));
 }
 
 // ── 사이드 패널 렌더링 ───────────────────────────────────
