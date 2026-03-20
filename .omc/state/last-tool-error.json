@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"\\\"/c/Program Files/GitHub CLI/gh.exe\\\" auth status 2>&1\",\"description\":\"Check gh auth status\"}",
+  "error": "Exit code 1\nYou are not logged into any GitHub hosts. To log in, run: gh auth login",
+  "timestamp": "2026-03-18T12:55:23.051Z",
+  "retry_count": 1
+}
