@@ -166,4 +166,13 @@ export const scheduleApi = {
   async delete(id) {
     return apiFetch(`/api/schedules/${id}`, { method: 'DELETE' });
   },
+
+  async search(query) {
+    const q = encodeURIComponent(query);
+    return apiFetch(`/api/schedules?search=${q}`);
+  },
+
+  async stats() {
+    return apiFetch('/api/schedules/stats');
+  },
 };
